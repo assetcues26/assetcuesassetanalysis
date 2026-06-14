@@ -1,29 +1,74 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronDown, ChevronUp, ExternalLink, FileDown, Package, Trash } from 'lucide-react';
 import { exportAssetReportPdf } from '../../services/assetReportPdf';
+import { isFullHistoryEntry } from '../../services/historyApi';
 import { useApp } from '../../context/AppContext';
+import { useHistory } from '../../hooks/useHistory';
 import { Button } from '@/components/ui/button';
 import { CardBody, CardContainer, CardItem } from '@/components/ui/3d-card-effect';
 import { ConditionBadge } from '../ui/ConditionBadge';
-import { LabelChip } from '../ui/LabelChip';
 import { ConfirmModal } from '../ui/Modal';
+import { Spinner } from '../ui/Spinner';
 import { formatRelativeTime } from '../../utils/formatters';
 import {
   getHistoryCardImageUrl,
   hasHistoryCardImage,
 } from './historyCardImages';
-import { AnalysisDetailSections } from '../result/AnalysisDetailSections';
-import { ScanImageGallery } from '../result/ScanImageGallery';
+import { AssetResultCard } from '../result/AssetResultCard';
+import { ImageLightbox } from '../result/ImageLightbox';
+import { buildResultGallery } from '../../utils/blobUrls';
 
 export function HistoryAssetCard({ entry, onDelete, expanded, onToggleExpand, index = 0 }) {
   const navigate = useNavigate();
   const { showToast } = useApp();
+  const { ensureEntry, loadingEntryIds } = useHistory();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
+  const [detailEntry, setDetailEntry] = useState(null);
+  const [loadError, setLoadError] = useState(null);
+  const [lightboxIndex, setLightboxIndex] = useState(null);
   const [imgSrc, setImgSrc] = useState(() => getHistoryCardImageUrl(entry));
   const hasStoredImages = hasHistoryCardImage(entry);
+
+  useEffect(() => {
+    if (!expanded) {
+      setDetailEntry(null);
+      setLoadError(null);
+      setLightboxIndex(null);
+      return undefined;
+    }
+
+    if (isFullHistoryEntry(entry)) {
+      setDetailEntry(entry);
+      return undefined;
+    }
+
+    let cancelled = false;
+    setLoadError(null);
+    ensureEntry(entry.id)
+      .then((fetched) => {
+        if (cancelled) return;
+        if (fetched) {
+          setDetailEntry(fetched);
+        } else {
+          setLoadError('Could not load report details');
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setLoadError('Could not load report details');
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [expanded, entry, ensureEntry]);
+
+  const loadingDetail =
+    expanded && loadingEntryIds.has(entry.id) && !detailEntry && !loadError;
+  const reportEntry = detailEntry || (isFullHistoryEntry(entry) ? entry : null);
+  const galleryImages = reportEntry ? buildResultGallery(reportEntry) : [];
 
   const handleDelete = (e) => {
     e.stopPropagation();
@@ -46,27 +91,35 @@ export function HistoryAssetCard({ entry, onDelete, expanded, onToggleExpand, in
         className="w-full"
       >
         <CardBody className="group/card relative w-full overflow-hidden rounded-2xl border border-gray-200/80 bg-white p-4 shadow-xl transition-shadow hover:shadow-2xl hover:shadow-blue-500/10 sm:p-5">
-          <Button
-            type="button"
-            variant="destructive"
-            size="sm"
-            onClick={handleDelete}
-            aria-label="Delete asset"
-            className="absolute right-4 top-4 z-50 min-h-11 touch-manipulation border-0 bg-red-600 px-3 text-white shadow-lg hover:bg-red-700 focus-visible:bg-red-700 sm:right-5 sm:top-5"
-          >
-            <Trash className="-ms-1 me-1.5 shrink-0" size={16} strokeWidth={2} aria-hidden />
-            Delete
-          </Button>
-
-          <CardItem translateZ={50} className="w-full pr-24 text-neutral-800">
-            <ConditionBadge condition={entry.condition} />
-            <h3 className="mt-2 truncate text-lg font-bold sm:text-xl">{entry.asset_name}</h3>
-            <p className="mt-1 truncate font-mono text-xs text-neutral-500">
-              {entry.detected_tag_number_raw}
-            </p>
-            <p className="mt-0.5 text-xs text-neutral-400">
-              {formatRelativeTime(entry.processedAt)}
-            </p>
+          <CardItem translateZ={50} className="w-full text-neutral-800">
+            <div className="flex items-start gap-3">
+              <div className="min-w-0 flex-1">
+                <ConditionBadge
+                  condition={entry.conditionDetail?.grade ?? entry.condition}
+                  overallScore={entry.conditionDetail?.overall_score}
+                />
+                <h3 className="mt-2 line-clamp-2 text-lg font-bold leading-snug break-words sm:text-xl">
+                  {entry.asset_name}
+                </h3>
+                <p className="mt-1 truncate font-mono text-xs text-neutral-500">
+                  {entry.detected_tag_number_raw}
+                </p>
+                <p className="mt-0.5 text-xs text-neutral-400">
+                  {formatRelativeTime(entry.processedAt)}
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="destructive"
+                size="sm"
+                onClick={handleDelete}
+                aria-label="Delete asset"
+                className="z-10 min-h-11 shrink-0 touch-manipulation border-0 bg-red-600 px-3 text-white shadow-lg hover:bg-red-700 focus-visible:bg-red-700"
+              >
+                <Trash className="-ms-1 me-1.5 shrink-0" size={16} strokeWidth={2} aria-hidden />
+                Delete
+              </Button>
+            </div>
           </CardItem>
 
           <CardItem translateZ={80} className="relative z-10 mt-4 w-full">
@@ -122,108 +175,105 @@ export function HistoryAssetCard({ entry, onDelete, expanded, onToggleExpand, in
             className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-lg"
           >
             <div className="space-y-5 p-4 sm:p-6">
-              {hasStoredImages && (
-                <div className="-mx-2 overflow-hidden rounded-xl border border-gray-100">
-                  <ScanImageGallery
-                    mergedImageUrl={entry.mergedImageUrl}
-                    previewUrls={entry.previewUrls || []}
-                    processingMode={entry.processingMode}
-                    analysisMethod={entry.analysis_method}
+              {loadingDetail && (
+                <div className="flex flex-col items-center gap-3 py-10 text-gray-600">
+                  <Spinner size={36} />
+                  <p className="text-sm">Loading report…</p>
+                </div>
+              )}
+
+              {loadError && !loadingDetail && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-center">
+                  <p className="text-sm text-amber-900">{loadError}</p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="mt-3"
+                    onClick={() => navigate(`/result/${entry.id}`)}
+                  >
+                    <ExternalLink className="me-2 shrink-0" size={16} aria-hidden />
+                    Open full report
+                  </Button>
+                </div>
+              )}
+
+              {reportEntry && !loadingDetail && (
+                <>
+                  <AssetResultCard
+                    result={reportEntry}
+                    images={reportEntry.previewUrls || []}
+                    onImageClick={setLightboxIndex}
+                    activeLightboxIndex={lightboxIndex}
+                    showExport={false}
                   />
-                </div>
-              )}
-              <DetailRow label="Asset condition">
-                {entry.asset_condition || '—'}
-              </DetailRow>
-              <DetailRow label="Description">
-                {entry.asset_description || '—'}
-              </DetailRow>
-              <DetailRow label="Tag detection">
-                {entry.tag_detection_reasoning || '—'}
-              </DetailRow>
-              <DetailRow label="Barcode position">
-                {entry.barcodeposition || '—'}
-              </DetailRow>
-              {entry.visible_labels?.length > 0 && (
-                <div>
-                  <p className="mb-2 text-sm font-semibold text-gray-800">Visible labels</p>
-                  <div className="flex flex-wrap gap-2">
-                    {entry.visible_labels.map((label) => (
-                      <LabelChip key={label} label={label} />
-                    ))}
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="flex-1"
+                      onClick={() => navigate(`/result/${entry.id}`)}
+                    >
+                      <ExternalLink className="me-2 shrink-0" size={16} aria-hidden />
+                      Open full report
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="flex-1"
+                      disabled={exportingPdf}
+                      onClick={async () => {
+                        setExportingPdf(true);
+                        try {
+                          await exportAssetReportPdf(reportEntry);
+                          showToast('PDF report downloaded', 'success');
+                        } catch (err) {
+                          showToast(err?.message || 'Could not generate PDF', 'error');
+                        } finally {
+                          setExportingPdf(false);
+                        }
+                      }}
+                    >
+                      <FileDown className="me-2 shrink-0" size={16} aria-hidden />
+                      {exportingPdf ? 'Generating…' : 'Download PDF'}
+                    </Button>
                   </div>
-                </div>
+                </>
               )}
-              <DetailRow label="Image readability">
-                {entry.image_readability || '—'}
-              </DetailRow>
-              <AnalysisDetailSections result={entry} />
-              {!hasStoredImages && (
+
+              {!reportEntry && !loadingDetail && !loadError && !hasStoredImages && (
                 <p className="flex items-center gap-2 text-sm text-gray-500">
                   <Package size={16} aria-hidden />
                   No preview image stored for this scan
                 </p>
               )}
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="flex-1"
-                  onClick={() => navigate(`/result/${entry.id}`)}
-                >
-                  <ExternalLink className="me-2 shrink-0" size={16} aria-hidden />
-                  Open full report
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="flex-1"
-                  disabled={exportingPdf}
-                  onClick={async () => {
-                    setExportingPdf(true);
-                    try {
-                      await exportAssetReportPdf(entry);
-                      showToast('PDF report downloaded', 'success');
-                    } catch (err) {
-                      showToast(err?.message || 'Could not generate PDF', 'error');
-                    } finally {
-                      setExportingPdf(false);
-                    }
-                  }}
-                >
-                  <FileDown className="me-2 shrink-0" size={16} aria-hidden />
-                  {exportingPdf ? 'Generating…' : 'Download PDF'}
-                </Button>
-              </div>
             </div>
           </motion.div>
         )}
       </AnimatePresence>
+
+      <ImageLightbox
+        imageUrl={
+          lightboxIndex != null ? galleryImages[lightboxIndex] || null : null
+        }
+        onClose={() => setLightboxIndex(null)}
+        zIndexClass="z-[80]"
+      />
 
       <ConfirmModal
         open={confirmOpen}
         title="Delete asset?"
         description={`Remove "${entry.asset_name}" from your history? This cannot be undone.`}
         confirmLabel="Delete"
-        onConfirm={() => {
-          onDelete(entry.id);
-          setConfirmOpen(false);
+        onConfirm={async () => {
+          try {
+            await onDelete(entry.id);
+            setConfirmOpen(false);
+          } catch {
+            showToast('Could not delete — try again', 'error');
+          }
         }}
         onCancel={() => setConfirmOpen(false)}
       />
     </motion.article>
-  );
-}
-
-function DetailRow({ label, children, mono = false }) {
-  return (
-    <div>
-      <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">{label}</p>
-      <p
-        className={`mt-1 break-words text-sm leading-relaxed text-gray-800 ${mono ? 'font-mono text-xs' : ''}`}
-      >
-        {children}
-      </p>
-    </div>
   );
 }

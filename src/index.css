@@ -36,11 +36,23 @@
     -webkit-tap-highlight-color: transparent;
     overflow-x: hidden;
     max-width: 100%;
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  html::-webkit-scrollbar {
+    display: none;
   }
 
   body {
     overflow-x: hidden;
     max-width: 100%;
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  body::-webkit-scrollbar {
+    display: none;
   }
 
   #root {
@@ -70,6 +82,23 @@
 
   .touch-manipulation {
     touch-action: manipulation;
+  }
+
+  .capture-flash-overlay {
+    animation: capture-flash 180ms ease-out forwards;
+  }
+
+  .capture-pill-bump {
+    animation: capture-pill-bump 320ms ease-out;
+  }
+
+  .scrollbar-none {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
   }
 
 }
@@ -149,4 +178,28 @@
     background: transparent;
   }
 
+}
+
+@keyframes capture-flash {
+  0% {
+    opacity: 0.9;
+  }
+
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes capture-pill-bump {
+  0% {
+    transform: scale(1);
+  }
+
+  35% {
+    transform: scale(1.18);
+  }
+
+  100% {
+    transform: scale(1);
+  }
 }

@@ -4,6 +4,12 @@ import userEvent from '@testing-library/user-event';
 import { renderAppAt, createTestImageFile, SEED_HISTORY, seedLocalHistory } from '../test/testUtils';
 import * as analysisService from '../services/analysisService';
 
+vi.mock('../config/features', () => ({
+  V6_DEMO_ENABLED: false,
+  CAPTURE_SESSION_ENABLED: true,
+  SAAS_MODULE_ENABLED: false,
+}));
+
 vi.mock('../services/analysisService', () => ({
   analyzeImages: vi.fn(),
 }));
@@ -110,7 +116,7 @@ describe('AppRouter — route endpoints', () => {
     renderAppAt('/');
     await user.click(screen.getByRole('button', { name: /Upload Images/i }));
     await waitFor(() => {
-      expect(screen.getByText(/Drag & Drop images here/i)).toBeInTheDocument();
+      expect(screen.getByText(/Click to upload or drag and drop/i)).toBeInTheDocument();
     });
   });
 
@@ -140,7 +146,7 @@ describe('AppRouter — route endpoints', () => {
     const viewButtons = screen.getAllByRole('button', { name: /View details/i });
     await user.click(viewButtons[0]);
     await waitFor(() => {
-      expect(screen.getByText(/Asset condition/i)).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Overview' })).toBeInTheDocument();
     });
   });
 });

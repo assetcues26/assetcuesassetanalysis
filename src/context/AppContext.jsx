@@ -4,13 +4,18 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
+import { DEFAULT_MARKET_REGION } from '../constants/markets';
 import {
   readStoredUploadMode,
-  UPLOAD_MODE_STORAGE_KEY,
   UPLOAD_PROCESSING_MODES,
 } from '../constants/uploadMode';
+import {
+  readStoredMarketRegion,
+  writeStoredMarketRegion,
+} from '../utils/marketStorage';
 
 const AppContext = createContext(null);
 
@@ -25,20 +30,23 @@ export function AppProvider({ children }) {
     version: '1.0.0',
   });
   const [toasts, setToasts] = useState([]);
+  const recentToastRef = useRef(new Map());
   const [previewImage, setPreviewImage] = useState(null);
   const [lastResult, setLastResult] = useState(null);
   const [analysisError, setAnalysisError] = useState(null);
   const [uploadProcessingMode, setUploadProcessingModeState] = useState(
     () => readStoredUploadMode(),
   );
+  const [marketRegion, setMarketRegionState] = useState(() => readStoredMarketRegion());
 
   const setUploadProcessingMode = useCallback((mode) => {
     setUploadProcessingModeState(mode);
-    try {
-      localStorage.setItem(UPLOAD_MODE_STORAGE_KEY, mode);
-    } catch {
-      /* ignore quota / private mode */
-    }
+  }, []);
+
+  const setMarketRegion = useCallback((region) => {
+    const normalized = (region || DEFAULT_MARKET_REGION).toUpperCase();
+    setMarketRegionState(normalized);
+    writeStoredMarketRegion(normalized);
   }, []);
 
   useEffect(() => {
@@ -57,6 +65,12 @@ export function AppProvider({ children }) {
   }, []);
 
   const showToast = useCallback((message, variant = 'info') => {
+    const key = `${variant}:${message}`;
+    const now = Date.now();
+    const lastAt = recentToastRef.current.get(key) || 0;
+    if (now - lastAt < 4000) return null;
+    recentToastRef.current.set(key, now);
+
     const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     setToasts((prev) => [...prev, { id, message, variant }]);
     return id;
@@ -82,6 +96,8 @@ export function AppProvider({ children }) {
       setAnalysisError,
       uploadProcessingMode,
       setUploadProcessingMode,
+      marketRegion,
+      setMarketRegion,
     }),
     [
       maxImages,
@@ -95,6 +111,8 @@ export function AppProvider({ children }) {
       analysisError,
       uploadProcessingMode,
       setUploadProcessingMode,
+      marketRegion,
+      setMarketRegion,
     ],
   );
 

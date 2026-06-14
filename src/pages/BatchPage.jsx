@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { ImageOff } from 'lucide-react';
@@ -9,13 +9,23 @@ import { Button } from '@/components/ui/button';
 import { BatchThumbnail } from '../components/batch/BatchThumbnail';
 import { PageWrapper } from '../components/layout/PageWrapper';
 import { HeroSection } from '../components/layout/HeroSection';
-import { useBatch } from '../hooks/useBatch';
+import { useMergedBatch } from '../hooks/useMergedBatch';
+import { useSession } from '../hooks/useSession';
 import { useApp } from '../context/AppContext';
+import { AddFromPhonePanel } from '../components/session/AddFromPhonePanel';
 
 export function BatchPage() {
   const navigate = useNavigate();
   const { setLastResult, setAnalysisError } = useApp();
-  const { batchImages, batchCount, removeImage, maxImages } = useBatch();
+  const {
+    batchImages,
+    batchCount,
+    removeImage,
+    maxImages,
+  } = useMergedBatch();
+  const { isSessionAnalyzing, cancelAnalysis } = useSession();
+  const [proceeding, setProceeding] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
 
   useEffect(() => {
     if (batchCount === 0) {
@@ -40,6 +50,45 @@ export function BatchPage() {
 
       <HeroSection>
         <PageWrapper className="py-6">
+          <div className="mb-6">
+            <AddFromPhonePanel variant="compact" />
+          </div>
+
+          {isSessionAnalyzing && (
+            <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4">
+              <p className="text-sm font-medium text-amber-900">Analysis in progress</p>
+              <p className="mt-1 text-xs text-amber-800">
+                Images are locked until you cancel. You can delete them after cancelling.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={cancelling}
+                  onClick={async () => {
+                    setCancelling(true);
+                    await cancelAnalysis({ clearImages: false });
+                    setCancelling(false);
+                  }}
+                >
+                  {cancelling ? 'Cancelling…' : 'Cancel analysis'}
+                </Button>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  disabled={cancelling}
+                  onClick={async () => {
+                    setCancelling(true);
+                    await cancelAnalysis({ clearImages: true });
+                    setCancelling(false);
+                  }}
+                >
+                  Cancel & clear all
+                </Button>
+              </div>
+            </div>
+          )}
+
           <motion.div
             key={batchCount}
             initial={{ opacity: 0 }}
@@ -99,11 +148,15 @@ export function BatchPage() {
           className="flex-[2]"
           label="Proceed to Analysis"
           count={batchCount}
-          disabled={batchCount === 0}
+          disabled={batchCount === 0 || proceeding}
           onClick={() => {
             setLastResult(null);
             setAnalysisError(null);
+            setProceeding(true);
+            // Always use the fast direct analyze path — phone images are
+            // downloaded from their signed URLs on the processing page.
             navigate('/processing');
+            setProceeding(false);
           }}
         />
       </div>

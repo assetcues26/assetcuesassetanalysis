@@ -1,8 +1,10 @@
 import {
+  DollarSign,
   Fingerprint,
   IndianRupee,
   Lightbulb,
   Package,
+  PoundSterling,
   Wrench,
 } from 'lucide-react';
 import { LabelChip } from '../ui/LabelChip';
@@ -13,8 +15,10 @@ import {
   formatList,
   bookNbvSublabel,
   formatBookNbvDisplay,
+  formatDisplayMoneyRange,
   formatInrAmount,
-  formatInrMoneyRange,
+  getValuationDisplayMeta,
+  getValuationRange,
 } from '../../utils/formatters';
 import { formatPlacement, formatStickerType } from '../../utils/placementFormatters';
 import { enrichAssetAgeFields } from '../../utils/assetAgeFields';
@@ -62,28 +66,31 @@ function hasMoneyRange(range) {
   return range?.min != null || range?.max != null;
 }
 
-function ValuationPanel({ valuation, erpVerification, erpContext }) {
+function currencyIcon(currency) {
+  if (currency === 'USD') return DollarSign;
+  if (currency === 'GBP') return PoundSterling;
+  return IndianRupee;
+}
+
+function ValuationPanel({ valuation, erpVerification, erpContext, analysisPolicy }) {
   if (!valuation) return null;
 
+  const displayMeta = getValuationDisplayMeta(analysisPolicy);
+  const asIs = getValuationRange(valuation, 'as_is');
+  const nbv = getValuationRange(valuation, 'nbv');
+  const likeNew = getValuationRange(valuation, 'like_new_reference');
   const hasAmounts =
-    hasMoneyRange(valuation.as_is?.inr) ||
-    hasMoneyRange(valuation.nbv?.inr) ||
-    hasMoneyRange(valuation.like_new_reference?.inr);
+    hasMoneyRange(asIs?.range) || hasMoneyRange(nbv?.range) || hasMoneyRange(likeNew?.range);
 
   return (
     <ResultPanel
-      icon={IndianRupee}
+      icon={currencyIcon(displayMeta.currency)}
       title="Valuation"
-      subtitle="India market estimates in rupees (₹)"
+      subtitle={displayMeta.subtitle}
     >
-      {valuation.status === 'withheld' && (
-        <p className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          {humanizeValuationStatus('withheld')}
-        </p>
-      )}
       {!hasAmounts ? (
         <div className="space-y-2 text-sm text-gray-600">
-          <p>No rupee estimate is available for this scan.</p>
+          <p>No market estimate is available for this scan.</p>
           {valuation.assumptions && <InfoRow label="Notes" value={valuation.assumptions} />}
         </div>
       ) : (
@@ -92,7 +99,7 @@ function ValuationPanel({ valuation, erpVerification, erpContext }) {
             <MoneyHighlight
               label="Current Estimate Value"
               sublabel="Damage-adjusted market value"
-              value={formatInrMoneyRange(valuation.as_is?.inr)}
+              value={formatDisplayMoneyRange(asIs?.range, asIs?.currency || displayMeta.currency)}
               variant="primary"
             />
             <MoneyHighlight
@@ -100,7 +107,12 @@ function ValuationPanel({ valuation, erpVerification, erpContext }) {
               sublabel={bookNbvSublabel(valuation)}
               value={
                 valuation.nbv
-                  ? formatBookNbvDisplay(valuation, erpVerification, erpContext)
+                  ? formatBookNbvDisplay(
+                      valuation,
+                      erpVerification,
+                      erpContext,
+                      displayMeta.currency,
+                    )
                   : 'Unavailable'
               }
               variant="muted"
@@ -168,7 +180,10 @@ function ValuationPanel({ valuation, erpVerification, erpContext }) {
                 Like-new reference
               </p>
               <p className="mt-1 text-lg font-bold text-gray-900">
-                {formatInrMoneyRange(valuation.like_new_reference?.inr)}
+                {formatDisplayMoneyRange(
+                  likeNew?.range,
+                  likeNew?.currency || displayMeta.currency,
+                )}
               </p>
             </div>
             {valuation.confidence != null && (
@@ -193,8 +208,8 @@ function ConditionPanel({ condition }) {
   return (
     <ResultPanel
       icon={Wrench}
-      title="Condition & damage"
-      subtitle="Physical state and repair outlook"
+      title="Damage analysis"
+      subtitle="Severity, repair outlook, and item-level damage"
     >
       <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {condition.grade && (
@@ -305,7 +320,7 @@ function AssetProfilePanel({ asset }) {
   if (!asset) return null;
 
   return (
-    <ResultPanel icon={Package} title="Asset profile" subtitle="Identity and specifications">
+    <CollapsiblePanel icon={Package} title="Asset profile" subtitle="Identity and specifications">
       <InfoGrid
         items={[
           ['Category', asset.category],
@@ -328,7 +343,7 @@ function AssetProfilePanel({ asset }) {
           ],
         ]}
       />
-    </ResultPanel>
+    </CollapsiblePanel>
   );
 }
 
@@ -400,7 +415,7 @@ function ErpVerificationPanel({ erpVerification }) {
   const warnings = erpVerification.validation_warnings || [];
 
   return (
-    <ResultPanel
+    <CollapsiblePanel
       icon={Fingerprint}
       title="ERP verification"
       subtitle="Vision results compared to input payload"
@@ -467,7 +482,7 @@ function ErpVerificationPanel({ erpVerification }) {
           ))}
         </ul>
       )}
-    </ResultPanel>
+    </CollapsiblePanel>
   );
 }
 
@@ -485,7 +500,7 @@ function TrackingPanel({ result, identifiers }) {
   if (!hasIds && !hasLabels && !hasStickers) return null;
 
   return (
-    <ResultPanel icon={Fingerprint} title="Tracking & labels" subtitle="Tags, barcodes, and stickers">
+    <CollapsiblePanel icon={Fingerprint} title="Tracking & labels" subtitle="Tags, barcodes, and stickers">
       <div className="space-y-5">
         <InfoGrid
           items={[
@@ -551,7 +566,7 @@ function TrackingPanel({ result, identifiers }) {
           </div>
         )}
       </div>
-    </ResultPanel>
+    </CollapsiblePanel>
   );
 }
 
@@ -624,14 +639,15 @@ export function AnalysisDetailSections({ result }) {
 
   return (
     <div className="space-y-6">
-      <ErpVerificationPanel erpVerification={erpVerification} />
       <ValuationPanel
         valuation={valuation}
         erpVerification={erpVerification}
         erpContext={result.erpContext}
+        analysisPolicy={result.analysis_policy}
       />
-      <AssetProfilePanel asset={asset} />
       <ConditionPanel condition={condition} />
+      <ErpVerificationPanel erpVerification={erpVerification} />
+      <AssetProfilePanel asset={asset} />
       <TrackingPanel result={result} identifiers={identifiers} />
       <InsightsPanel reasoning={result.reasoning_summary} />
     </div>

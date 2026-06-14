@@ -12,8 +12,10 @@ import {
   bookNbvSublabel,
   formatAgeYearsMonths,
   formatBookNbvDisplay,
-  formatInrMoneyRange,
-  normalizeCondition,
+  formatDisplayMoneyRange,
+  getCurrencyMeta,
+  getValuationRange,
+  resolveConditionLabel,
 } from '../../utils/formatters';
 import { tagReadabilityLabel, tagReadabilityStatus } from '../../utils/tagReadability';
 
@@ -53,10 +55,21 @@ function CopyField({ value, label }) {
   );
 }
 
-function conditionVariant(condition) {
-  const n = normalizeCondition(condition);
-  if (n === 'Good') return 'success';
-  if (n === 'Poor') return 'warning';
+function conditionVariant(label) {
+  if (label === 'Excellent' || label === 'Good') return 'success';
+  if (label === 'Poor') return 'warning';
+  return 'default';
+}
+
+function sentenceCase(text) {
+  if (!text) return text;
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+function repairVariant(text) {
+  const lower = (text || '').toLowerCase();
+  if (/no repair|none needed|not (needed|required)/.test(lower)) return 'success';
+  if (/replace|severe|urgent|immediate/.test(lower)) return 'warning';
   return 'default';
 }
 
@@ -64,6 +77,7 @@ export function AssetResultCard({
   result,
   images = [],
   onImageClick,
+  activeLightboxIndex = null,
   showExport = true,
   onExportPdf,
 }) {
@@ -86,22 +100,42 @@ export function AssetResultCard({
   const assetSubtitle = [asset?.brand, asset?.model, asset?.category].filter(Boolean).join(' · ');
   const ageSummary = formatAgeYearsMonths(asset?.estimated_age_years);
   const modelYearSummary = asset?.estimated_model_years;
-  const valuationRange = formatInrMoneyRange(result.valuation?.as_is?.inr);
+  const displayCurrency = result.analysis_policy?.display_currency || 'INR';
+  const currencySymbol = getCurrencyMeta(displayCurrency).symbol;
+  const asIsRange = getValuationRange(result.valuation, 'as_is');
+  const valuationRange = formatDisplayMoneyRange(
+    asIsRange?.range,
+    asIsRange?.currency || displayCurrency,
+  );
   const hasValuation = valuationRange !== '—';
   const bookNbvDisplay = formatBookNbvDisplay(
     result.valuation,
     result.erp_verification,
     result.erpContext,
+    displayCurrency,
   );
   const hasBookNbv = bookNbvDisplay !== '—';
   const isErpBookNbv = result.valuation?.nbv?.method === 'erp_book_nbv';
-  const conditionLabel = normalizeCondition(result.condition);
+  const conditionLabel = resolveConditionLabel(
+    result.conditionDetail?.grade ?? result.condition,
+    result.conditionDetail?.overall_score,
+  );
   const rawTag =
     result.detected_tag_number_raw && result.detected_tag_number_raw !== '—'
       ? result.detected_tag_number_raw
       : null;
   const tagHighlight =
     rawTag && rawTag.length > 18 ? `${rawTag.slice(0, 16)}…` : rawTag || 'Not detected';
+  const repairRecommendation =
+    result.conditionDetail?.repair_recommendation &&
+    result.conditionDetail.repair_recommendation !== '—'
+      ? sentenceCase(result.conditionDetail.repair_recommendation)
+      : null;
+  const repairShort =
+    repairRecommendation && repairRecommendation.length > 40
+      ? `${repairRecommendation.slice(0, 38)}…`
+      : repairRecommendation;
+  const nbvExceedsAsIs = result.valuation?.nbv_exceeds_as_is;
   const erpVerify = result.erp_verification;
   const tagMatchLabel =
     erpVerify != null
@@ -139,7 +173,10 @@ export function AssetResultCard({
             </h2>
             {assetSubtitle && <p className="mt-1.5 text-sm text-gray-600">{assetSubtitle}</p>}
             <div className="mt-4 flex flex-wrap items-center gap-2">
-              <ConditionBadge condition={result.condition} />
+              <ConditionBadge
+                condition={result.conditionDetail?.grade ?? result.condition}
+                overallScore={result.conditionDetail?.overall_score}
+              />
               <span
                 className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium ${
                   tagStatus === 'readable'
@@ -188,22 +225,25 @@ export function AssetResultCard({
         processingMode={result.processingMode}
         analysisMethod={result.analysis_method}
         onImageClick={onImageClick}
+        activeIndex={activeLightboxIndex}
       />
 
       <div className="space-y-6 px-6 py-6 sm:px-8">
-        <div
-          className={`grid gap-3 sm:grid-cols-2 ${isErpBookNbv && hasBookNbv ? 'lg:grid-cols-5' : 'lg:grid-cols-4'}`}
-        >
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <HighlightMetric
             label="Condition"
             value={conditionLabel}
             hint={result.asset_condition !== '—' ? 'See overview' : undefined}
-            variant={conditionVariant(result.condition)}
+            variant={conditionVariant(conditionLabel)}
           />
           <HighlightMetric
             label="Current estimate"
             value={hasValuation ? valuationRange : 'Pending'}
-            hint={hasValuation ? 'Damage-adjusted market (₹)' : 'Run fresh analysis'}
+            hint={
+              hasValuation
+                ? `Damage-adjusted market (${currencySymbol})`
+                : 'Run fresh analysis'
+            }
             variant={hasValuation ? 'primary' : 'muted'}
           />
           {isErpBookNbv && hasBookNbv && (
@@ -239,6 +279,26 @@ export function AssetResultCard({
             hint={modelYearSummary && ageSummary ? `Year ${modelYearSummary}` : undefined}
             variant="default"
           />
+          {repairShort && (
+            <HighlightMetric
+              label="Repair recommendation"
+              value={repairShort}
+              hint="See condition & damage"
+              variant={repairVariant(repairRecommendation)}
+            />
+          )}
+          {nbvExceedsAsIs != null && (
+            <HighlightMetric
+              label="NBV vs current estimate"
+              value={nbvExceedsAsIs ? 'NBV above estimate' : 'Within estimate'}
+              hint={
+                nbvExceedsAsIs
+                  ? 'Book NBV exceeds damage-adjusted market value'
+                  : 'Book NBV is at or below market value'
+              }
+              variant={nbvExceedsAsIs ? 'warning' : 'success'}
+            />
+          )}
         </div>
 
         <ResultPanel
